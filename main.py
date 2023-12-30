@@ -1,7 +1,7 @@
 import utime
 import select
 import math
-import starlight
+import starlight_mini
 import json
 import time
 import gpio
@@ -10,8 +10,7 @@ import fusion
 import machine
 from machine import Pin, PWM
 
-defaultJson = '{"startupMode":0,"features":[{"data":{"action":"none"},"id":0,"type":"PYRO"},{"data":{"action":"none"},"id":1,"type":"PYRO"},{"data":{"action":"none"},"id":2,"type":"GPIO"},{"data":{"action":"none"},"id":3,"type":"GPIO"},{"data":{"action":"none"},"id":4,"type":"GPIO"},{"data":{"action":"none"},"id":5,"type":"GPIO"},{"data":{"action":"none"},"id":6,"type":"GPIO"},{"data":{"action":"none"},"id":7,"type":"GPIO"}]}'
-
+defaultJson = '{"startupMode":0,"features":[{"data":{"action":"none"},"id":0,"type":"PYRO"}]}'
 
 time.sleep(3)
 
@@ -22,9 +21,9 @@ def getAltitude(pressure):
 
 # ----------HARDWARE------------
 # pyro channels and GPIO pins are treated the same in firmware
-outputs = [gpio.GPIO(0, 7), gpio.GPIO(1, 6), gpio.GPIO(2, 0), gpio.GPIO(3, 1), gpio.GPIO(4, 16), gpio.GPIO(5, 17), gpio.GPIO(6, 18), gpio.GPIO(7, 19)]
-leds = [Pin(24, Pin.OUT)]
-buzzers = []
+outputs = [gpio.GPIO(0, 21)]
+leds = [Pin(23, Pin.OUT)]
+buzzers = [Pin(16, Pin.OUT)]
 
 # -- HARDWARE FUNCTIONS --
 def toggleLeds():
@@ -163,8 +162,8 @@ while mode == 0:
                     break
                     
     
-        # Searching for connection. sc is starlight's code to send
-        print("sc")
+        # Searching for connection. sd is sl mini's code to send
+        print("sd")
         utime.sleep(0.25)
 
     if connected:
@@ -226,15 +225,12 @@ while mode == 0:
 
 i2c = machine.I2C(1, scl=machine.Pin(3), sda=machine.Pin(2), freq=9600)
 
-gyr = starlight.ICM42605(i2c, 0x68) # create our ICM-42605 object
-gyr.config_gyro() # set up our gyroscope/accelerometer
-gyr.enable() # enable our gyroscope/accelerometer
-#gyr.get_bias() # calibrate our gyroscope/accelerometer
+accel = starlight_mini.LIS3DH(i2c, 0x18) # create our ICM-42605 object
+accel.config_accel()
 
-temp = starlight.BMP388(i2c, 0x76) # create our BMP388 object
+temp = starlight_mini.BMP388(i2c, 0x76) # create our BMP388 object
 temp.enable_temp_and_pressure() # enable our sensors
 temp.calibrate() # calibrate our sensors
-f = fusion.Fusion()
 
 # temp.setGroundPressure(temp.getPressure())
 
@@ -279,10 +275,9 @@ fl.write(x)
 fl.close()
 while mode == 1: # our main loop    
     lastTime = time.ticks_ms()
-    data = gyr.get_accel_and_gyro_data()
-    f.update_nomag((data[0], data[1], data[2]), (data[3], data[4], data[5]))
+    data = accel.get_data()
 
-    gyr.get_acceleration()
+    # gyr.get_acceleration()
     count += 1
     hz += 1
     
@@ -290,10 +285,10 @@ while mode == 1: # our main loop
     if gpevent > 0:
         event = gpevent
     
-    # Raw accelaration values
-    accelX = gyr.ax # + math.sin(f.pitch * (math.pi/180))
-    accelY = gyr.ay # - math.cos(f.pitch * (math.pi/180)) * math.sin(f.roll * (math.pi/180))
-    accelZ = gyr.az # - math.cos(f.pitch * (math.pi/180)) * math.cos(f.roll * (math.pi/180))
+    # Raw accelaration values switched to resemble SL values
+    accelX = data[0] * -1 # + math.sin(f.pitch * (math.pi/180))
+    accelY = data[1] * -1 # - math.cos(f.pitch * (math.pi/180)) * math.sin(f.roll * (math.pi/180))
+    accelZ = data[2] # - math.cos(f.pitch * (math.pi/180)) * math.cos(f.roll * (math.pi/180))
     
     
     # Pressure averaging
@@ -337,6 +332,10 @@ while mode == 1: # our main loop
     
     altitude = getAltitude(avg_pressure)
     
+    if len(pressure_values) < 5:
+        altitude = 0
+        baseline_altitude = 0
+    
     # Launch detection
     if (accelY > 2.5 or altitude - baseline_altitude > 10) and not launched:
         print("launch")
@@ -352,27 +351,19 @@ while mode == 1: # our main loop
         burnout = True
 
     # Landing detection
-    if altitude < 50 and not landed and reached_apoapsis:
-        # calculate whether we're still or not
-        compAccelX = accelX + math.sin(f.pitch * (math.pi/180))
-        compAccelY = accelY - math.cos(f.pitch * (math.pi/180)) * math.sin(f.roll * (math.pi/180))
-        compAccelZ = accelZ - math.cos(f.pitch * (math.pi/180)) * math.cos(f.roll * (math.pi/180))
-        if abs(compAccelX) < 0.1 and abs(compAccelY) < 0.1 and abs(compAccelZ) < 0.1:
-            gpio.runTrigger(outputs, 9, 0)
-            event = 17
-            print("landed")
-            landed = True
+    if altitude - baseline_altitude < 5 and not landed and reached_apoapsis:
+        gpio.runTrigger(outputs, 9, 0)
+        event = 17
+        print("landed")
+        landed = True
 
     # Log data
     if baseline_altitude != 0: # if we're ready to go
         toggleLeds()
-        file.write(str(event) + ',' + str(time.ticks_ms()) + ',' + str(accelX) + ',' + str(accelY) + ',' + str(accelZ) + ',' + str(altitude - baseline_altitude) + ',' + str(temp.getTemperature()) + ',' + str(f.roll) + ',' + str(f.pitch) + ':')
+        file.write(str(event) + ',' + str(time.ticks_ms()) + ',' + str(altitude - baseline_altitude) + ',' + str(temp.getTemperature()) + ',' + str(accelX) + ',' + str(accelY) + ',' + str(accelZ) + ':')
     
     # Save logged data
     if count % 50 == 0:
-        print("Pitch: " + str("%.2f" % f.pitch) + " Roll: " + str("%.2f" % f.roll) + "\naX: " + str(accelX) + "\naY: " + str(accelY) + "\naZ: " + str(accelZ) )
-        print(altitude)
-        print(baseline_altitude)
         file.close()
         file = open("flight_data.txt", "a")
         
