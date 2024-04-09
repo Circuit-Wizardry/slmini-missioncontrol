@@ -323,7 +323,7 @@ while mode == 1: # our main loop
         setAvg = True
         
         
-    if apoapsis_timeout > 3 and not reached_apoapsis:
+    if apoapsis_timeout > 2 and not reached_apoapsis and launched and altitude - baseline_altitude > 15:
         reached_apoapsis = True
         print("apoapsis")
         gpio.runTrigger(outputs, 1, 0)
