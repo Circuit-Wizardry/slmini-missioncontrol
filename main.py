@@ -6,7 +6,6 @@ import json
 import time
 import gpio
 import sys
-import fusion
 import machine
 from machine import Pin, PWM
 
