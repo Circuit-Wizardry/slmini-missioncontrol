@@ -224,7 +224,7 @@ while mode == 0:
 
 i2c = machine.I2C(1, scl=machine.Pin(3), sda=machine.Pin(2), freq=9600)
 
-accel = starlight_mini.LIS3DH(i2c, 0x18) # create our ICM-42605 object
+accel = starlight_mini.LIS3DH(i2c, 0x18) # create our LIS3DH object
 accel.config_accel()
 
 temp = starlight_mini.BMP388(i2c, 0x76) # create our BMP388 object
@@ -243,6 +243,8 @@ file.write('b')
 count = 0
 
 event = 0
+
+data_timer = 0
 
 apoapsis = 10000
 apoapsis_timeout = 0
@@ -357,8 +359,12 @@ while mode == 1: # our main loop
         landed = True
 
     # Log data
-    if baseline_altitude != 0: # if we're ready to go
+    if baseline_altitude != 0 and data_timer < 100: # if we're ready to go
         toggleLeds()
+        if landed:
+            data_timer += 1
+        if data_timer == 99:
+            print("Shutting off data collection. Landing was detected.")
         file.write(str(event) + ',' + str(time.ticks_ms()) + ',' + str(altitude - baseline_altitude) + ',' + str(temp.getTemperature()) + ',' + str(accelX) + ',' + str(accelY) + ',' + str(accelZ) + ':')
     
     # Save logged data
