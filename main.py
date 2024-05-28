@@ -245,6 +245,8 @@ count = 0
 event = 0
 
 data_timer = 0
+landing_timer = 0
+emergency_landing_timer = 0
 
 apoapsis = 10000
 apoapsis_timeout = 0
@@ -264,9 +266,9 @@ baseline_pressure = temp.getPressure()
 
 time.sleep(0.25)
 buzz_blocking(1) # buzz to make sure we know that we're in launch mode
-time.sleep(1)
+time.sleep(0.5)
 buzz_blocking(1) # buzz to make sure we know that we're in launch mode
-time.sleep(1)
+time.sleep(0.5)
 buzz_blocking(1) # buzz to make sure we know that we're in launch mode
 
 # Switch back to startupMode 0 RIGHT BEFORE starting logging
@@ -338,7 +340,7 @@ while mode == 1: # our main loop
         baseline_altitude = 0
     
     # Launch detection
-    if (accelY > 2.5 or altitude - baseline_altitude > 10) and not launched:
+    if (accelY > 3 or altitude - baseline_altitude > 10) and not launched:
         print("launch")
         gpio.runTrigger(outputs, 5, 0)
         event = 13
@@ -352,14 +354,23 @@ while mode == 1: # our main loop
         burnout = True
 
     # Landing detection
-    if altitude - baseline_altitude < 5 and not landed and reached_apoapsis:
+    if altitude - baseline_altitude < 20 and not landed and reached_apoapsis:
+        landing_timer += 1
+    else:
+        landing_timer = 0
+
+    # Emergency landing detection (if the board gets stuck in a tree, etc)
+    if altitude - baseline_altitude < 200 and not landed and reached_apoapsis:
+        emergency_landing_timer += 1
+
+    if landing_timer > 50 or emergency_landing_timer > 4000: # after 50 data cycles where altitude is < 20 feet, or after 4000 data cycles where altitude is < 200 ft
         gpio.runTrigger(outputs, 9, 0)
         event = 17
-        print("landed")
+        print("Landed")
         landed = True
-
+        
     # Log data
-    if baseline_altitude != 0 and data_timer < 100: # if we're ready to go
+    if baseline_altitude != 0 and data_timer < 100: # if we're ready to go then we should start collecting data
         toggleLeds()
         if landed:
             data_timer += 1
@@ -368,7 +379,7 @@ while mode == 1: # our main loop
         file.write(str(event) + ',' + str(time.ticks_ms()) + ',' + str(altitude - baseline_altitude) + ',' + str(temp.getTemperature()) + ',' + str(accelX) + ',' + str(accelY) + ',' + str(accelZ) + ':')
     
     # Save logged data
-    if count % 50 == 0:
+    if count % 50 == 0 and data_timer < 151:
         file.close()
         file = open("flight_data.txt", "a")
         
